@@ -301,10 +301,12 @@ H5PEditor.widgets.video = H5PEditor.widgets.audio = H5PEditor.AV = (function ($)
 
     return '<div role="button" tabindex="1" class="h5p-add-file" title="' + H5PEditor.t('core', 'addFile') + '"></div>' +
         '<div class="h5p-add-dialog">' +
-          '<div class="h5p-dialog-box">' +
+          /* oncampus mod - remove upload 
+		  '<div class="h5p-dialog-box">' +
             '<button class="h5p-file-upload">' + H5PEditor.t('core', 'selectFiletoUpload') + '</button>' +
           '</div>' +
           '<div class="h5p-or"><span>' + H5PEditor.t('core', 'or') + '</span></div>' +
+		  */
           '<div class="h5p-dialog-box">' +
             '<input type="text" placeholder="' + inputPlaceholder + '" class="h5p-file-url h5peditor-text"/>' +
             description +

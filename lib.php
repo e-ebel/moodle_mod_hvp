@@ -108,9 +108,12 @@ function hvp_update_instance($hvp) {
     // Save content
     hvp_save_content($hvp);
 
-    // Update grade item with 100% max score, reset user records.
-    $hvp->rawgrademax = '100';
-    hvp_grade_item_update($hvp, 'reset');
+    /* oncampus mod - Grading zurücksetzen, wenn checkbox aktiv ist */
+    if ($hvp->reset == true) {
+        // Update grade item with 100% max score, reset user records.
+        $hvp->rawgrademax = '100';
+        hvp_grade_item_update($hvp, 'reset');
+    }
 
     return true;
 }
@@ -346,5 +349,46 @@ function hvp_update_grades($hvp=null, $userid=0, $nullifnone=true) {
 
     } else {
         hvp_grade_item_update($hvp);
+    }
+}
+
+/**
+ * Place Downloadlink - oncampus mod
+ *
+ * @param cm_info $cm
+ */
+function hvp_cm_info_dynamic(cm_info $cm) {
+    global $CFG, $DB;
+
+    $context = get_context_instance(CONTEXT_MODULE, $cm->id);
+    if (has_capability('mod/hvp:getexport', $context)) {
+        $course = $cm->get_course();
+        $course_module = $cm->get_course_module_record();
+
+        $context = \context_course::instance($course->id);
+        $hvppath = "{$CFG->httpswwwroot}/pluginfile.php/{$context->id}/mod_hvp";
+
+        $hvp = $DB->get_record('hvp', array('id' => $course_module->instance));
+        $slug = $hvp->slug;
+
+        $exportfilename = $slug . '-' . $hvp->id . '.h5p';
+        $export = "{$hvppath}/exports/{$exportfilename}";
+
+        $cm->set_after_link(html_writer::link($export, ' | Download H5P-File | '));
+    } else {
+        $cm->set_no_view_link();
+    }
+}
+
+/**
+ * Embed h5p-content - oncampus mod
+ *
+ * @param cm_info $cm
+ */
+function hvp_cm_info_view(cm_info $cm) {
+    global $USER;
+
+    if ($USER->editing != 1) {
+        $cm->set_content('<div class="hvp-iframe fluid-width-video-wrapper" data-id="' . $cm->id . '"><iframe src="/mod/hvp/view.php?id=' . $cm->id . '&embed=true" allowfullscreen="" scrolling="no" frameborder="0" height="515px" width="100%"></iframe></div>');
     }
 }

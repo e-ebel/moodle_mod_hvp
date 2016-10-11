@@ -25,6 +25,8 @@ require_once("../../config.php");
 require_once("locallib.php");
 
 $id = required_param('id', PARAM_INT);
+/* oncampus mod - Zusätzlicher Parameter für das Einbinden als iFrame */
+$embed = optional_param('embed', false, PARAM_BOOL);
 
 $url = new \moodle_url('/mod/hvp/view.php', array('id' => $id));
 $PAGE->set_url($url);
@@ -57,6 +59,9 @@ new \mod_hvp\event(
 
 $PAGE->set_title(format_string($content['title']));
 $PAGE->set_heading($course->fullname);
+
+/* oncampus mod - Pagelayout auf embedded setzen */
+if (!empty($embed) && $embed == true) $PAGE->set_pagelayout('embedded');
 
 // Mark viewed by user (if required).
 $completion = new completion_info($course);
@@ -139,6 +144,10 @@ if ($embedtype === 'div') {
 
 // Print JavaScript settings to page.
 $PAGE->requires->data_for_js('H5PIntegration', $settings, true);
+
+/* oncampus mod - oncampus.js einbinden */
+$PAGE->requires->jquery();
+$PAGE->requires->js(new moodle_url($CFG->httpswwwroot . '/mod/hvp/library/js/oncampus.js'), false);
 
 // Print page HTML.
 echo $OUTPUT->header();

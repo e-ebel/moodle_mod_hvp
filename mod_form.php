@@ -81,6 +81,13 @@ class mod_hvp_mod_form extends moodleform_mod {
         $mform->setType('copyright', PARAM_BOOL);
         $mform->setDefault('copyright', true);
         $mform->disabledIf('copyright', 'frame');
+		
+		/* oncampus mod - checkbox um Grades zurückzusetzen */
+        $mform->addElement('header', 'displayreset', get_string('displayreset', 'hvp'));
+        $mform->addElement('checkbox', 'reset', get_string('reset', 'hvp'));
+        $mform->setType('reset', PARAM_BOOL);
+        $mform->setDefault('reset', false);
+		/* oncampus mod - end */
 
         $this->standard_coursemodule_elements();
 

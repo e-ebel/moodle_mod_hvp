@@ -233,8 +233,10 @@ H5P.init = function (target) {
       }
     });
 
+    /* oncampus mod - Video completedListener abschalten */
     // Listen for xAPI events.
-    H5P.on(instance, 'xAPI', H5P.xAPICompletedListener);
+    //H5P.on(instance, 'xAPI', H5P.xAPICompletedListener);
+	/* oncampus mod - end */
 
     // Auto save current state if supported
     if (H5PIntegration.saveFreq !== false && (

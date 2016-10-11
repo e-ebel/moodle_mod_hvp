@@ -156,8 +156,14 @@ switch($action) {
      *  - maxScore
      */
     case 'setfinished':
-        \mod_hvp\user_grades::handle_ajax();
+        /* oncampus mod - Liefert Lernfortschritt zurück */
+        $response = \mod_hvp\user_grades::handle_ajax();
+
+        header('Cache-Control', 'no-cache');
+        header('Content-Type: application/json');
+        print json_encode($response);
         break;
+		/* oncampus mod - end */
 
     /*
      * Provide data for results view
