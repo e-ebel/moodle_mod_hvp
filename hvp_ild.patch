@@ -1,7 +1,7 @@
 From b877b08cf1262e23bcb02b15b594ee8c55482255 Mon Sep 17 00:00:00 2001
 From: Eugen Ebel <eugen.ebel@fh-luebeck.de>
 Date: Tue, 11 Oct 2016 13:22:54 +0200
-Subject: [PATCH] ild modified files
+Subject: [PATCH 1/3] ild modified files
 
 ---
  ajax.php                       |   8 ++-
@@ -479,6 +479,549 @@ index ac6690e..252d854 100644
  // Print page HTML.
  echo $OUTPUT->header();
  echo '<div class="clearer"></div>';
+-- 
+2.8.1.windows.1
+
+
+From cf380e22f58b0e2a5ef21bd3c3abbcbfb782caf2 Mon Sep 17 00:00:00 2001
+From: Eugen Ebel <eugen.ebel@fh-luebeck.de>
+Date: Tue, 11 Oct 2016 13:29:38 +0200
+Subject: [PATCH 2/3] patch created
+
+---
+ hvp_ild.patch | 484 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 484 insertions(+)
+ create mode 100644 hvp_ild.patch
+
+diff --git a/hvp_ild.patch b/hvp_ild.patch
+new file mode 100644
+index 0000000..dadd1c0
+--- /dev/null
++++ b/hvp_ild.patch
+@@ -0,0 +1,484 @@
++From b877b08cf1262e23bcb02b15b594ee8c55482255 Mon Sep 17 00:00:00 2001
++From: Eugen Ebel <eugen.ebel@fh-luebeck.de>
++Date: Tue, 11 Oct 2016 13:22:54 +0200
++Subject: [PATCH] ild modified files
++
++---
++ ajax.php                       |   8 ++-
++ classes/oc_progress.php        |  29 ++++++++++
++ classes/user_grades.php        |  43 ++++++++++-----
++ editor/scripts/h5peditor-av.js |   4 +-
++ lib.php                        |  50 +++++++++++++++--
++ library/js/h5p.js              |   4 +-
++ library/js/oncampus.js         | 120 +++++++++++++++++++++++++++++++++++++++++
++ mod_form.php                   |   7 +++
++ styles.css                     |  40 ++++++++++++++
++ view.php                       |   9 ++++
++ 10 files changed, 295 insertions(+), 19 deletions(-)
++ create mode 100644 classes/oc_progress.php
++ create mode 100644 library/js/oncampus.js
++
++diff --git a/ajax.php b/ajax.php
++index 2ed0637..efaa0c1 100644
++--- a/ajax.php
+++++ b/ajax.php
++@@ -156,8 +156,14 @@ switch($action) {
++      *  - maxScore
++      */
++     case 'setfinished':
++-        \mod_hvp\user_grades::handle_ajax();
+++        /* oncampus mod - Liefert Lernfortschritt zurück */
+++        $response = \mod_hvp\user_grades::handle_ajax();
+++
+++        header('Cache-Control', 'no-cache');
+++        header('Content-Type: application/json');
+++        print json_encode($response);
++         break;
+++		/* oncampus mod - end */
++ 
++     /*
++      * Provide data for results view
++diff --git a/classes/oc_progress.php b/classes/oc_progress.php
++new file mode 100644
++index 0000000..97112bb
++--- /dev/null
+++++ b/classes/oc_progress.php
++@@ -0,0 +1,29 @@
+++<?php
+++
+++function getOCProgress($courseId, $sectionId) {
+++    global $DB, $CFG, $USER;
+++    require_once($CFG->libdir . '/gradelib.php');
+++    $percentage = 0;
+++
+++    if (!$module = $DB->get_record('modules', array('name' => 'hvp'))) {
+++        return false;
+++    }
+++
+++    $cm = $DB->get_records('course_modules', array('section' => $sectionId, 'course' => $courseId, 'module' => $module->id));
+++    $count = count($cm);
+++
+++    if ($count == 0) {
+++        return false;
+++    }
+++
+++    foreach ($cm as $module) {
+++        $grading_info = grade_get_grades($module->course, 'mod', 'hvp', $module->instance, $USER->id);
+++        $user_grade = $grading_info->items[0]->grades[$USER->id]->grade;
+++
+++        $percentage += $user_grade / $count;
+++    }
+++
+++    $progress = array('sectionId' => $sectionId, 'percentage' => $percentage);
+++
+++    return $progress;
+++}
++\ No newline at end of file
++diff --git a/classes/user_grades.php b/classes/user_grades.php
++index f50e629..e2a2757 100644
++--- a/classes/user_grades.php
+++++ b/classes/user_grades.php
++@@ -9,6 +9,8 @@
++  */
++ namespace mod_hvp;
++ require(__DIR__ . '/../lib.php');
+++/* oncampus mod - Lernfortschritt Funktionen einbinden */
+++require('oc_progress.php');
++ 
++ /**
++  * Handles grade storage for users
++@@ -50,35 +52,50 @@ class user_grades {
++             'rawgrade' => $score,
++         );
++ 
+++        /* oncampus mod - Grades updaten, wenn aktueller Grade größer als alter */
++         // Get course module id from db, required for grade item
++-        $cm_id_sql = "SELECT cm.id, h.name
+++        $cm_id_sql = "SELECT cm.id, cm.course, cm.instance, cm.section, h.name
++             FROM {course_modules} cm, {hvp} h, {modules} m
++             WHERE cm.instance = h.id AND h.id = ? AND m.name = 'hvp' AND m.id = cm.module";
++         $result = $DB->get_record_sql($cm_id_sql, array($content_id));
++ 
++-        // Set grade using Gradebook API
++-        $hvp->cmidnumber = $result->id;
++-        $hvp->name = $result->name;
++-        $hvp->rawgrademax = $max_score;
++-        hvp_grade_item_update($hvp, $grade);
+++        require_once($CFG->libdir . '/gradelib.php');
+++        $grading_info = grade_get_grades($result->course, 'mod', 'hvp', $result->instance, $USER->id);
+++        if (!empty($grading_info->items)) {
+++            $user_grade = $grading_info->items[0]->grades[$USER->id]->grade;
+++        } else {
+++            $user_grade = 0;
+++        }
+++        
+++        if ($score > $user_grade) {
+++            // Set grade using Gradebook API
+++            $hvp->cmidnumber = $result->id;
+++            $hvp->name = $result->name;
+++            $hvp->rawgrademax = $max_score;
+++            hvp_grade_item_update($hvp, $grade);
++ 
++-        // Get content info for log
++-        $content = $DB->get_record_sql(
+++            // Get content info for log
+++            $content = $DB->get_record_sql(
++                 "SELECT c.name AS title, l.machine_name AS name, l.major_version, l.minor_version
++                    FROM {hvp} c
++                    JOIN {hvp_libraries} l ON l.id = c.main_library_id
++                   WHERE c.id = ?",
++                 array($content_id)
++-        );
+++            );
++ 
++-        // Log view
++-        new \mod_hvp\event(
+++            // Log view
+++            new \mod_hvp\event(
++                 'results', 'set',
++                 $content_id, $content->title,
++                 $content->name, $content->major_version . '.' . $content->minor_version
++-        );
+++            );
+++
+++            $progress = getOCProgress($result->course, $result->section);
+++
+++            return $progress;
+++        }
++ 
++-        \H5PCore::ajaxSuccess();
++         exit;
+++		/* oncampus mod - end */
++     }
++ }
++diff --git a/editor/scripts/h5peditor-av.js b/editor/scripts/h5peditor-av.js
++index f8b74a0..ccb0231 100644
++--- a/editor/scripts/h5peditor-av.js
+++++ b/editor/scripts/h5peditor-av.js
++@@ -301,10 +301,12 @@ H5PEditor.widgets.video = H5PEditor.widgets.audio = H5PEditor.AV = (function ($)
++ 
++     return '<div role="button" tabindex="1" class="h5p-add-file" title="' + H5PEditor.t('core', 'addFile') + '"></div>' +
++         '<div class="h5p-add-dialog">' +
++-          '<div class="h5p-dialog-box">' +
+++          /* oncampus mod - remove upload 
+++		  '<div class="h5p-dialog-box">' +
++             '<button class="h5p-file-upload">' + H5PEditor.t('core', 'selectFiletoUpload') + '</button>' +
++           '</div>' +
++           '<div class="h5p-or"><span>' + H5PEditor.t('core', 'or') + '</span></div>' +
+++		  */
++           '<div class="h5p-dialog-box">' +
++             '<input type="text" placeholder="' + inputPlaceholder + '" class="h5p-file-url h5peditor-text"/>' +
++             description +
++diff --git a/lib.php b/lib.php
++index 9757c2b..b25a5f1 100644
++--- a/lib.php
+++++ b/lib.php
++@@ -108,9 +108,12 @@ function hvp_update_instance($hvp) {
++     // Save content
++     hvp_save_content($hvp);
++ 
++-    // Update grade item with 100% max score, reset user records.
++-    $hvp->rawgrademax = '100';
++-    hvp_grade_item_update($hvp, 'reset');
+++    /* oncampus mod - Grading zurücksetzen, wenn checkbox aktiv ist */
+++    if ($hvp->reset == true) {
+++        // Update grade item with 100% max score, reset user records.
+++        $hvp->rawgrademax = '100';
+++        hvp_grade_item_update($hvp, 'reset');
+++    }
++ 
++     return true;
++ }
++@@ -348,3 +351,44 @@ function hvp_update_grades($hvp=null, $userid=0, $nullifnone=true) {
++         hvp_grade_item_update($hvp);
++     }
++ }
+++
+++/**
+++ * Place Downloadlink - oncampus mod
+++ *
+++ * @param cm_info $cm
+++ */
+++function hvp_cm_info_dynamic(cm_info $cm) {
+++    global $CFG, $DB;
+++
+++    $context = get_context_instance(CONTEXT_MODULE, $cm->id);
+++    if (has_capability('mod/hvp:getexport', $context)) {
+++        $course = $cm->get_course();
+++        $course_module = $cm->get_course_module_record();
+++
+++        $context = \context_course::instance($course->id);
+++        $hvppath = "{$CFG->httpswwwroot}/pluginfile.php/{$context->id}/mod_hvp";
+++
+++        $hvp = $DB->get_record('hvp', array('id' => $course_module->instance));
+++        $slug = $hvp->slug;
+++
+++        $exportfilename = $slug . '-' . $hvp->id . '.h5p';
+++        $export = "{$hvppath}/exports/{$exportfilename}";
+++
+++        $cm->set_after_link(html_writer::link($export, ' | Download H5P-File | '));
+++    } else {
+++        $cm->set_no_view_link();
+++    }
+++}
+++
+++/**
+++ * Embed h5p-content - oncampus mod
+++ *
+++ * @param cm_info $cm
+++ */
+++function hvp_cm_info_view(cm_info $cm) {
+++    global $USER;
+++
+++    if ($USER->editing != 1) {
+++        $cm->set_content('<div class="hvp-iframe fluid-width-video-wrapper" data-id="' . $cm->id . '"><iframe src="/mod/hvp/view.php?id=' . $cm->id . '&embed=true" allowfullscreen="" scrolling="no" frameborder="0" height="515px" width="100%"></iframe></div>');
+++    }
+++}
++\ No newline at end of file
++diff --git a/library/js/h5p.js b/library/js/h5p.js
++index 1fd545c..77b5baf 100644
++--- a/library/js/h5p.js
+++++ b/library/js/h5p.js
++@@ -233,8 +233,10 @@ H5P.init = function (target) {
++       }
++     });
++ 
+++    /* oncampus mod - Video completedListener abschalten */
++     // Listen for xAPI events.
++-    H5P.on(instance, 'xAPI', H5P.xAPICompletedListener);
+++    //H5P.on(instance, 'xAPI', H5P.xAPICompletedListener);
+++	/* oncampus mod - end */
++ 
++     // Auto save current state if supported
++     if (H5PIntegration.saveFreq !== false && (
++diff --git a/library/js/oncampus.js b/library/js/oncampus.js
++new file mode 100644
++index 0000000..aae1f2e
++--- /dev/null
+++++ b/library/js/oncampus.js
++@@ -0,0 +1,120 @@
+++/** @namespace */
+++var OC = OC || {};
+++
+++/**
+++ * Interactions counter
+++ * @type {Array}
+++ */
+++OC.interactions = [];
+++
+++/**
+++ * Answered Layer
+++ * @type {Array}
+++ */
+++OC.answered = [];
+++
+++/**
+++ * SubContentIds - avoid duplicated answered statement
+++ * @type {Array}
+++ */
+++OC.subIds = [];
+++
+++/**
+++ * Internal H5P function listening for xAPI answered events and stores scores.
+++ *
+++ * @param {H5P.XAPIEvent} event
+++ */
+++OC.xAPIAnsweredListener = function (event) {
+++    var contentId = event.getVerifiedStatementValue(['object', 'definition', 'extensions', 'http://h5p.org/x-api/h5p-local-content-id']);
+++
+++    if (event.getVerb() === 'answered') {
+++        var score = event.getScore();
+++        var maxScore = event.getMaxScore();
+++        var subContentId = event.data.statement.object.id;
+++
+++        if ((OC.subIds.indexOf(subContentId) == -1) && (score == maxScore)) {
+++            if (typeof OC.answered[contentId] === 'undefined') {
+++                OC.answered[contentId] = 1;
+++            }
+++
+++            if (typeof OC.interactions[contentId] === 'undefined') {
+++                OC.interactions[contentId] = 1;
+++            }
+++
+++            var answered = OC.answered[contentId];
+++            var interactions = OC.interactions[contentId];
+++            var percentage = (answered / interactions) * 100;
+++
+++            OC.setResult(contentId, percentage, 100);
+++            OC.answered[contentId] += 1;
+++            OC.subIds.push(subContentId);
+++        }
+++    }
+++
+++    if (OC.interactions.length === 0 && event.getVerb() === 'completed') {
+++        OC.setResult(contentId, 100, 100);
+++    }
+++};
+++
+++/**
+++ * Post answered results for user and set progress.
+++ *
+++ * @param {number} contentId
+++ *   Identifies the content
+++ * @param {number} score
+++ *   Achieved score/points
+++ * @param {number} maxScore
+++ *   The maximum score/points that can be achieved
+++ */
+++OC.setResult = function (contentId, score, maxScore) {
+++    $.post(H5PIntegration.ajax.setFinished, {
+++        contentId: contentId,
+++        score: score,
+++        maxScore: maxScore
+++    }, function (data) {
+++        var div_id = String('oc-progress-' + data.sectionId);
+++        var text_div_id = String('oc-progress-text-' + data.sectionId);
+++        var percentage = Math.round(data.percentage);
+++        percentage = String(percentage + '%');
+++
+++        $('#' + div_id, window.parent.document).css('width', percentage);
+++        $('#' + text_div_id, window.parent.document).html(percentage);
+++    }, 'json');
+++};
+++
+++
+++/**
+++ * Count interactions layers from H5P element.
+++ */
+++OC.getVideoInteractions = function () {
+++    $('iframe[class="h5p-iframe h5p-initialized"]').each(function () {
+++        var contentId = $(this).data('content-id');
+++        var contentData = H5PIntegration.contents['cid-' + contentId];
+++        var content = JSON.parse(contentData.jsonContent);
+++        var interactions = content.interactiveVideo.assets.interactions;
+++        var notAllowedInteractions = ['H5P.Text', 'H5P.Table', 'H5P.Link', 'H5P.Image', 'H5P.GoToQuestion', 'H5P.Summery'];
+++        var interactionsCounter = 0;
+++
+++        if(typeof interactions === 'object') {
+++            $.each(interactions, function (i) {
+++                var library = interactions[i].action.library;
+++                var foundItem = false;
+++
+++                $.each(notAllowedInteractions, function (j) {
+++                    if (library.indexOf(notAllowedInteractions[j]) > -1) {
+++                        foundItem = true;
+++                    }
+++                });
+++
+++                if (!foundItem) interactionsCounter++;
+++            });
+++
+++            OC.interactions[contentId] = interactionsCounter;
+++        }
+++    });
+++};
+++
+++$(window).load(function () {
+++    OC.getVideoInteractions();
+++    H5P.externalDispatcher.on('xAPI', OC.xAPIAnsweredListener);
+++});
++\ No newline at end of file
++diff --git a/mod_form.php b/mod_form.php
++index c3b5513..1b65ab6 100644
++--- a/mod_form.php
+++++ b/mod_form.php
++@@ -81,6 +81,13 @@ class mod_hvp_mod_form extends moodleform_mod {
++         $mform->setType('copyright', PARAM_BOOL);
++         $mform->setDefault('copyright', true);
++         $mform->disabledIf('copyright', 'frame');
+++		
+++		/* oncampus mod - checkbox um Grades zurückzusetzen */
+++        $mform->addElement('header', 'displayreset', get_string('displayreset', 'hvp'));
+++        $mform->addElement('checkbox', 'reset', get_string('reset', 'hvp'));
+++        $mform->setType('reset', PARAM_BOOL);
+++        $mform->setDefault('reset', false);
+++		/* oncampus mod - end */
++ 
++         $this->standard_coursemodule_elements();
++ 
++diff --git a/styles.css b/styles.css
++index 80a2835..4777719 100644
++--- a/styles.css
+++++ b/styles.css
++@@ -66,3 +66,43 @@
++ .h5p-data-view th[role="button"].h5p-sort:hover:after {
++   color: #999;
++ }
+++
+++/* oncampus mod - start */
+++.hvp-iframe {
+++    padding-bottom: 56.25% !important;
+++    padding-top: 40px !important;
+++    overflow: hidden;
+++}
+++
+++.activity.hvp.modtype_hvp .mod-indent > a {
+++	display: none;
+++	visibility: hidden;
+++}
+++
+++.activity.hvp.modtype_hvp .no-overflow, .editing .activity.hvp.modtype_hvp .no-overflow {
+++    width: 70%;
+++    max-width: 840px;
+++    margin-left: auto;
+++    margin-right: auto;
+++    padding-top: 30px;
+++    overflow: visible;
+++}
+++
+++.editing .activity.hvp.modtype_hvp .mod-indent > a{
+++	display: inline;
+++	visibility: visible;
+++}
+++
+++.activity.hvp.modtype_hvp img, .editing .activity.hvp.modtype_hvp img {
+++    width: 22px;
+++}
+++
+++#page-mod-hvp-view #page {
+++    padding: 0;
+++    margin: 0;
+++}
+++
+++#page-mod-hvp-view {
+++    min-width: 0;
+++}
+++/* oncampus mod - end */
++\ No newline at end of file
++diff --git a/view.php b/view.php
++index ac6690e..252d854 100644
++--- a/view.php
+++++ b/view.php
++@@ -25,6 +25,8 @@ require_once("../../config.php");
++ require_once("locallib.php");
++ 
++ $id = required_param('id', PARAM_INT);
+++/* oncampus mod - Zusätzlicher Parameter für das Einbinden als iFrame */
+++$embed = optional_param('embed', false, PARAM_BOOL);
++ 
++ $url = new \moodle_url('/mod/hvp/view.php', array('id' => $id));
++ $PAGE->set_url($url);
++@@ -58,6 +60,9 @@ new \mod_hvp\event(
++ $PAGE->set_title(format_string($content['title']));
++ $PAGE->set_heading($course->fullname);
++ 
+++/* oncampus mod - Pagelayout auf embedded setzen */
+++if (!empty($embed) && $embed == true) $PAGE->set_pagelayout('embedded');
+++
++ // Mark viewed by user (if required).
++ $completion = new completion_info($course);
++ $completion->set_module_viewed($cm);
++@@ -140,6 +145,10 @@ if ($embedtype === 'div') {
++ // Print JavaScript settings to page.
++ $PAGE->requires->data_for_js('H5PIntegration', $settings, true);
++ 
+++/* oncampus mod - oncampus.js einbinden */
+++$PAGE->requires->jquery();
+++$PAGE->requires->js(new moodle_url($CFG->httpswwwroot . '/mod/hvp/library/js/oncampus.js'), false);
+++
++ // Print page HTML.
++ echo $OUTPUT->header();
++ echo '<div class="clearer"></div>';
++-- 
++2.8.1.windows.1
++
+-- 
+2.8.1.windows.1
+
+
+From 76f7b4dfc989c102f1158ade21e237f764b6b01e Mon Sep 17 00:00:00 2001
+From: Eugen Ebel <eugen.ebel@fh-luebeck.de>
+Date: Wed, 12 Oct 2016 07:56:27 +0200
+Subject: [PATCH 3/3] language addition and fixes
+
+---
+ classes/user_grades.php | 2 +-
+ lang/de/hvp.php         | 3 +++
+ 2 files changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/classes/user_grades.php b/classes/user_grades.php
+index e2a2757..86e8d6e 100644
+--- a/classes/user_grades.php
++++ b/classes/user_grades.php
+@@ -19,7 +19,7 @@ require('oc_progress.php');
+ class user_grades {
+ 
+     public static function handle_ajax() {
+-        global $DB, $USER;
++        global $DB, $USER, $CFG;
+ 
+         if (!\H5PCore::validToken('result', required_param('token', PARAM_RAW))) {
+             \H5PCore::ajaxError(get_string('invalidtoken', 'hvp'));
+diff --git a/lang/de/hvp.php b/lang/de/hvp.php
+index 068751e..5030730 100644
+--- a/lang/de/hvp.php
++++ b/lang/de/hvp.php
+@@ -253,3 +253,6 @@ $string['welcomeheader'] = 'Willkommen in der Welt von H5P!';
+ $string['welcomegettingstarted'] = 'Um mit H5P und Moodle loszulegen, befindet sich hier ein <a {$a->moodle_tutorial}>Tutorial</a> und es gibt<a {$a->example_content}>Beispielinhalte</a> auf H5P.org als Inspiration.<br>Für das bestmögliche Erlebnis wurden die beliebtesten Inhaltstypen installiert!';
+ $string['welcomecommunity'] = 'Wir hoffen, dass Ihnen H5P gefällt und bieten die Möglichkeit, im <a {$a->forums}>Forum</a> und im Chat-Room <a {$a->gitter}>H5P bei Gitter</a> aktiv zu werden.';
+ $string['welcomecontactus'] = 'Für Feedback bitte nicht zögern, uns zu <a {$a}>kontaktieren</a>. Wir nehmen Feedback sehr ernst und bemühen uns, H5P jeden Tag besser zu machen!';
++
++$string['displayreset'] = 'Bewertung zurücksetzen';
++$string['reset'] = 'Alle Bewertungen zurücksetzen?';
+\ No newline at end of file
 -- 
 2.8.1.windows.1
 
