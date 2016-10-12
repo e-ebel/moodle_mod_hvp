@@ -19,7 +19,7 @@ require('oc_progress.php');
 class user_grades {
 
     public static function handle_ajax() {
-        global $DB, $USER;
+        global $DB, $USER, $CFG;
 
         if (!\H5PCore::validToken('result', required_param('token', PARAM_RAW))) {
             \H5PCore::ajaxError(get_string('invalidtoken', 'hvp'));
